@@ -1,0 +1,155 @@
+{
+  "formats": [
+    {
+      "id": "docx",
+      "name": "DOCX",
+      "category": "document",
+      "extensions": ["docx"],
+      "to": ["pdf", "epub", "txt", "doc", "html", "odt", "md", "rtf"]
+    },
+    {
+      "id": "pdf",
+      "name": "PDF",
+      "category": "document",
+      "extensions": ["pdf"],
+      "to": ["jpg", "pdf", "docx", "png", "epub", "webp", "txt", "tiff"]
+    },
+    {
+      "id": "arw",
+      "name": "ARW",
+      "category": "image",
+      "extensions": ["arw"],
+      "to": ["jpg", "pdf", "png", "webp", "tiff"]
+    },
+    {
+      "id": "avif",
+      "name": "AVIF",
+      "category": "image",
+      "extensions": ["avif"],
+      "to": ["jpg", "pdf", "png", "gif", "webp", "ico", "tiff", "bmp"]
+    },
+    {
+      "id": "bmp",
+      "name": "BMP",
+      "category": "image",
+      "extensions": ["bmp"],
+      "to": ["jpg", "pdf", "png", "docx", "gif", "webp", "txt", "ico", "tiff"]
+    },
+    {
+      "id": "cr2",
+      "name": "CR2",
+      "category": "image",
+      "extensions": ["cr2"],
+      "to": ["jpg", "pdf", "png", "webp", "tiff", "bmp"]
+    },
+    {
+      "id": "dng",
+      "name": "DNG",
+      "category": "image",
+      "extensions": ["dng"],
+      "to": ["jpg", "pdf", "png", "webp", "tiff"]
+    },
+    {
+      "id": "gif",
+      "name": "GIF",
+      "category": "image",
+      "extensions": ["gif"],
+      "to": ["jpg", "pdf", "mp4", "png", "webp", "mov", "webm", "ico", "avif", "tiff", "bmp"]
+    },
+    {
+      "id": "heic",
+      "name": "HEIC",
+      "category": "image",
+      "extensions": ["heic", "heif"],
+      "to": ["jpg", "pdf", "png", "docx", "gif", "webp", "txt", "ico", "avif", "tiff", "bmp"]
+    },
+    {
+      "id": "ico",
+      "name": "ICO",
+      "category": "image",
+      "extensions": ["ico"],
+      "to": ["jpg", "pdf", "png", "gif", "webp", "bmp"]
+    },
+    {
+      "id": "jpg",
+      "name": "JPG",
+      "category": "image",
+      "extensions": ["jpg", "jpeg", "jpe", "jfif"],
+      "to": ["pdf", "png", "docx", "gif", "webp", "txt", "ico", "avif", "tiff", "bmp"]
+    },
+    {
+      "id": "nef",
+      "name": "NEF",
+      "category": "image",
+      "extensions": ["nef"],
+      "to": ["jpg", "pdf", "png", "webp", "tiff", "bmp"]
+    },
+    {
+      "id": "png",
+      "name": "PNG",
+      "category": "image",
+      "extensions": ["png"],
+      "to": ["jpg", "pdf", "docx", "gif", "webp", "txt", "ico", "avif", "tiff", "bmp"]
+    },
+    {
+      "id": "tiff",
+      "name": "TIFF",
+      "category": "image",
+      "extensions": ["tiff", "tif"],
+      "to": ["jpg", "pdf", "png", "docx", "gif", "webp", "txt", "ico", "avif", "bmp"]
+    },
+    {
+      "id": "webp",
+      "name": "WebP",
+      "category": "image",
+      "extensions": ["webp"],
+      "to": ["jpg", "pdf", "png", "docx", "gif", "txt", "ico", "avif", "tiff", "bmp"]
+    },
+    {
+      "id": "ai",
+      "name": "AI",
+      "category": "vector",
+      "extensions": ["ai"],
+      "to": ["jpg", "pdf", "png", "svg"]
+    },
+    {
+      "id": "eps",
+      "name": "EPS",
+      "category": "vector",
+      "extensions": ["eps"],
+      "to": ["jpg", "pdf", "png", "svg"]
+    },
+    {
+      "id": "svg",
+      "name": "SVG",
+      "category": "vector",
+      "extensions": ["svg"],
+      "to": ["jpg", "pdf", "png", "webp", "eps"]
+    },
+    {
+      "id": "mp4",
+      "name": "MP4",
+      "category": "video",
+      "extensions": ["mp4", "m4v"],
+      "to": [
+        "mp3",
+        "wav",
+        "gif",
+        "mov",
+        "m4a",
+        "webm",
+        "flac",
+        "mkv",
+        "avi",
+        "aac",
+        "ogg",
+        "opus",
+        "wmv",
+        "flv",
+        "3gp",
+        "wma",
+        "aiff"
+      ]
+    }
+  ]
+}

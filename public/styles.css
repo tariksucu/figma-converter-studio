@@ -1,0 +1,428 @@
+/*
+ * The panel follows Figma's theme: Figma sets its colour tokens (--figma-color-*) and the
+ * `figma-light` or `figma-dark` class on <html> (showUI with themeColors). The values after each
+ * token are only for a page opened outside Figma.
+ */
+:root {
+  --bg: var(--figma-color-bg, #ffffff);
+  --bg-2: var(--figma-color-bg-secondary, #f5f5f5);
+  --text: var(--figma-color-text, #000000e5);
+  --text-2: var(--figma-color-text-secondary, #00000080);
+  --border: var(--figma-color-border, #e6e6e6);
+  --brand: var(--figma-color-bg-brand, #0d99ff);
+  --brand-hover: var(--figma-color-bg-brand-hover, #007be5);
+  --on-brand: var(--figma-color-text-onbrand, #ffffff);
+  --danger: var(--figma-color-text-danger, #dc3412);
+  --success: var(--figma-color-text-success, #009951);
+  --warning: var(--figma-color-text-warning, #b86200);
+  --local: var(--figma-color-text-success, #009951);
+  --cloud: var(--figma-color-text-brand, #007be5);
+  color-scheme: light;
+}
+
+:root.figma-dark {
+  --bg: var(--figma-color-bg, #2c2c2c);
+  --bg-2: var(--figma-color-bg-secondary, #383838);
+  --text: var(--figma-color-text, #ffffff);
+  --text-2: var(--figma-color-text-secondary, #ffffffb3);
+  --border: var(--figma-color-border, #444444);
+  --local: var(--figma-color-text-success, #79d297);
+  --cloud: var(--figma-color-text-brand, #7cc4f8);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    11px/16px Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Converter Studio's logomark: an outlined square and an orange one over it. */
+.mark {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.mark::before,
+.mark::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+}
+
+.mark::before {
+  top: 0;
+  left: 0;
+  border: 1.5px solid var(--text);
+}
+
+.mark::after {
+  right: 0;
+  bottom: 0;
+  background: #ff5418;
+}
+
+.credits {
+  color: var(--text-2);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 8px 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--text);
+  color: var(--text);
+}
+
+.body {
+  flex: 1;
+  padding: 10px 12px;
+}
+
+.body > * + * {
+  margin-top: 10px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--text-2);
+}
+
+.small {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.selection,
+.picked {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.options {
+  display: grid;
+  gap: 4px;
+}
+
+.option {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.option:has(input:checked) {
+  border-color: var(--brand);
+}
+
+.option:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.option input {
+  margin: 2px 0 0;
+}
+
+.option-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.option-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.hint {
+  color: var(--text-2);
+}
+
+/* Only the chosen format says more about itself. */
+.option:not(:has(input:checked)) .hint {
+  display: none;
+}
+
+.badge {
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.badge-local {
+  color: var(--local);
+}
+
+.badge-cloud {
+  color: var(--cloud);
+}
+
+.badge-off {
+  color: var(--text-2);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-2);
+}
+
+.input,
+.select {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.input:focus,
+.select:focus,
+.button:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 0;
+}
+
+.note {
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+
+.note > * + * {
+  margin-top: 4px;
+}
+
+.note-local {
+  color: var(--text);
+}
+
+.warn {
+  color: var(--warning);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.button {
+  min-height: 28px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button.primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cloud);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.status-error {
+  color: var(--danger);
+}
+
+.status-done {
+  color: var(--success);
+}
+
+.rows {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.row-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-note {
+  color: var(--text-2);
+  text-align: right;
+}
+
+.row-done .row-note {
+  color: var(--success);
+}
+
+.row-failed .row-note {
+  color: var(--danger);
+}
+
+.advanced summary {
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.advanced > * + * {
+  margin-top: 8px;
+}
+
+.dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #0006;
+}
+
+.dialog[hidden] {
+  display: none;
+}
+
+.dialog-box {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 6px 24px #0005;
+}
+
+.foot {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.link {
+  color: var(--text-2);
+}

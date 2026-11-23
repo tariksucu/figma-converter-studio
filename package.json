@@ -1,0 +1,47 @@
+{
+  "name": "figma-converter-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Converter Studio for Figma: export layers as WebP, TIFF and ICO favicons on your computer, as AVIF or a smaller PDF with Converter Studio, and place AVIF, TIFF, camera RAW, EPS and AI files.",
+  "license": "MIT",
+  "author": "Converter Studio <support@converter.studio> (https://converter.studio)",
+  "homepage": "https://converter.studio/developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tariksucu/figma-converter-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tariksucu/figma-converter-studio/issues",
+    "email": "support@converter.studio"
+  },
+  "keywords": [
+    "figma",
+    "figma-plugin",
+    "converter-studio",
+    "webp",
+    "avif",
+    "tiff",
+    "ico",
+    "favicon",
+    "raw",
+    "eps"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.code.json --noEmit",
+    "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.mjs"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "1.143.0",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "jsdom": "30.1.3",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  // The panel (src/ui, in Figma's iframe, with the DOM), the shared messages, the plugin's logic
+  // (src/code/plugin.ts takes `figma` as an argument and imports Figma's types as a module) and
+  // the tests. src/code/index.ts, which uses Figma's globals, is checked by tsconfig.code.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "include": ["src/ui", "src/shared", "src/code/plugin.ts", "src/code/place.ts", "test"]
+}

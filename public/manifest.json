@@ -1,0 +1,13 @@
+{
+  "name": "Converter Studio: WebP, AVIF & ICO Export",
+  "id": "converter-studio-development",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["https://converter.studio/api/"],
+    "reasoning": "Only for the conversions you send to the Converter Studio cloud (AVIF, smaller PDF, and camera RAW, TIFF, AI or EPS files you place): the layer's export or the chosen file is uploaded to the Converter Studio API with your API key, and the result is downloaded back. WebP, TIFF and ICO exports are made on your computer without the network."
+  }
+}
