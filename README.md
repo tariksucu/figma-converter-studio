@@ -40,7 +40,7 @@ drag them onto the canvas.
 1. In Figma, open **Plugins** (or **Resources**, Shift + I), search for **Converter Studio** and
    run it. The plugin works in Figma Design.
 2. The WebP, TIFF and ICO exports and the AVIF, BMP and ICO pictures work right away.
-3. For the cloud, create a Converter Studio account (free accounts get 13 credits a day; most
+3. For the cloud, create a Converter Studio account (free accounts get 25 credits a day; most
    conversions cost 1 credit) and an API key on your
    [account page](https://converter.studio/account#api-keys). In the plugin, open **Settings**,
    paste the key and press **Connect**: the plugin checks it with Converter Studio and shows your
