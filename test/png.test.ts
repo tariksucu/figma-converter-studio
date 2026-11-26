@@ -135,7 +135,12 @@ const banner = picture(120, 80, (x, y) => {
 const expectSame = (decoded: Decoded, source: Pixels) =>
   expect(Buffer.from(decoded.rgba).equals(Buffer.from(normalized(source).data))).toBe(true);
 
-describe('the lossless PNG writer', () => {
+// Encoding and quantizing (image-q, plain JavaScript) many pictures in one test: the slowest take
+// under 1 s on a fast computer and 2.2 s on GitHub's shared runner, too close to Vitest's 5 s
+// default when a runner is slower still. 30 s still stops a loop that never ends.
+const ENCODING_TIMEOUT = 30_000;
+
+describe('the lossless PNG writer', { timeout: ENCODING_TIMEOUT }, () => {
   it('RGB and alpha: every visible pixel exactly as it was', async () => {
     const png = await encodePng(banner, deflate);
     const decoded = decodePng(png);
@@ -273,7 +278,7 @@ describe('the lossless PNG writer', () => {
   });
 });
 
-describe('fewer colours (image-q)', () => {
+describe('fewer colours (image-q)', { timeout: ENCODING_TIMEOUT }, () => {
   it('quantizes to at most the colours asked for, each pixel to its nearest entry', async () => {
     const clean = normalized(banner);
     for (const colours of [64, 16, 4]) {

@@ -266,7 +266,13 @@ describe('JPG on this computer', () => {
   });
 });
 
-describe('PNG on this computer', () => {
+// Fewer colours quantizes the 320×200 picture with image-q (plain JavaScript) once per palette size
+// the search tries, and writes each result: the slowest test takes about 2.5 s on a fast computer
+// and took 5.3 s on GitHub's shared runner, over Vitest's 5 s default. 30 s still stops a search
+// that never ends.
+const ENCODING_TIMEOUT = 30_000;
+
+describe('PNG on this computer', { timeout: ENCODING_TIMEOUT }, () => {
   /** A gradient with transparent corners: more than 256 colours. */
   const gradient = (x: number, y: number) =>
     x < 4 && y < 4
