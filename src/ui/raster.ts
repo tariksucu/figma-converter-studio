@@ -3,7 +3,7 @@ import type { Pixels } from './encode/tiff';
 /**
  * Pictures in the panel, with the browser's own image code (Figma's desktop app is Chromium):
  * decoding what the browser reads, drawing it at a size on a canvas, and writing the canvas as
- * PNG, WebP or (where the browser can) AVIF. Nothing here touches the network.
+ * PNG, JPG, WebP or (where the browser can) AVIF. Nothing here touches the network.
  *
  * The panel uses it through the `Raster` interface, so the tests can stand in for it; the real
  * canvas is tried in Chromium and Firefox by dev/browser-check.mjs.
@@ -23,6 +23,8 @@ export interface EncodeOptions {
   readonly height?: number;
   /** Centred on a transparent square canvas (icons). */
   readonly square?: boolean;
+  /** A colour under the picture (JPG has no transparency: white, not the canvas's black). */
+  readonly background?: string;
 }
 
 export interface Raster {
@@ -113,6 +115,10 @@ export function browserRaster(): Raster {
       if (!context) return null;
       context.imageSmoothingEnabled = true;
       context.imageSmoothingQuality = 'high';
+      if (options.background) {
+        context.fillStyle = options.background;
+        context.fillRect(0, 0, canvasWidth, canvasHeight);
+      }
       context.drawImage(
         bitmap,
         Math.floor((canvasWidth - width) / 2),

@@ -47,13 +47,14 @@ async function open(
     settings?: Settings;
     scenario?: Partial<Scenario>;
     offline?: boolean;
+    sizeOf?: (quality: number, width: number, height: number) => number;
   } = {},
 ) {
   const server = fakeServer(options.scenario);
   const fetch = options.offline
     ? () => Promise.reject(new TypeError('Failed to fetch'))
     : server.fetch;
-  const storage: Record<string, string | null> = {};
+  const storage: Record<string, unknown> = {};
   const placed: Ask[] = [];
   const bridge = fakeBridge((ask): Answer => {
     switch (ask.kind) {
@@ -63,13 +64,16 @@ async function open(
           kind: 'context',
           id: 1,
           selection: options.selection ?? selected(),
-          settings: options.settings ?? { apiKey: null, apiBase: null },
+          settings: options.settings ?? { apiKey: null, apiBase: null, exportPrefs: null },
         };
       case 'save-key':
         storage.key = ask.apiKey;
         return { source: SOURCE, kind: 'done', id: 1 };
       case 'save-base':
         storage.base = ask.apiBase;
+        return { source: SOURCE, kind: 'done', id: 1 };
+      case 'save-export':
+        storage.prefs = ask.prefs;
         return { source: SOURCE, kind: 'done', id: 1 };
       case 'export':
         return { source: SOURCE, kind: 'exported', id: 1, name: 'x', bytes: pngBytes(320, 200) };
@@ -89,7 +93,9 @@ async function open(
   });
   const save = vi.fn();
   const raster = fakeRaster({
+    encodes: ['image/jpeg', 'image/webp'],
     decodes: (bytes) => (bytes[0] === 0x41 ? { width: 800, height: 600 } : null),
+    ...(options.sizeOf ? { sizeOf: options.sizeOf } : {}),
   });
   const started = startPanel(container, {
     bridge,
@@ -110,6 +116,8 @@ const badge = (id: string) => text(`label[for=target-${id}] .badge`);
 describe('the panel', () => {
   it('says where each format is made, and waits for a selection', async () => {
     await open();
+    expect(badge('jpg')).toBe('In Figma');
+    expect(badge('png')).toBe('In Figma');
     expect(badge('webp')).toBe('In Figma');
     expect(badge('tiff')).toBe('In Figma');
     expect(badge('ico')).toBe('In Figma');
@@ -131,6 +139,7 @@ describe('the panel', () => {
   it('exports WebP on this computer and saves it on a click', async () => {
     const { bridge, save, server } = await open();
     bridge.notify({ kind: 'selection', selection: selected(HERO) });
+    choose('webp');
     expect(text('#export')).toBe('Export 1 layer');
     click('#export');
     await until(() => $('#save'), 'the Save button');
@@ -154,6 +163,135 @@ describe('the panel', () => {
     const [blob, name] = save.mock.calls[0]! as [Blob, string];
     expect(name).toBe('2 TIFF files.zip');
     expect(blob.type).toBe('application/zip');
+  });
+
+  it('JPG first: several layers at several scales under a size, one ZIP named as Figma names', async () => {
+    const { save, storage } = await open({ selection: selected(HERO, LOGO) });
+    expect($<HTMLInputElement>('#target-jpg')!.checked).toBe(true);
+    expect(text('label[for=target-jpg] .hint')).toMatch(/Transparent areas become white/);
+    // Scales: 1× is on; add 2×.
+    expect($<HTMLInputElement>('#scale-1')!.checked).toBe(true);
+    const two = $<HTMLInputElement>('#scale-2')!;
+    two.checked = true;
+    two.dispatchEvent(new Event('change'));
+    expect(text('#export')).toBe('Export 2 layers (4 files)');
+    const kb = $<HTMLInputElement>('#max-kb')!;
+    kb.value = '40';
+    kb.dispatchEvent(new Event('change'));
+    const width = $<HTMLInputElement>('#max-width')!;
+    width.value = '1600.4';
+    width.dispatchEvent(new Event('change'));
+    expect(width.value).toBe('1600');
+    click('#export');
+    await until(() => $('#save'), 'the Save button');
+    expect([...container.querySelectorAll('.row-name')].map((n) => n.textContent)).toEqual([
+      'Hero',
+      'Hero@2x',
+      'Logo',
+      'Logo@2x',
+    ]);
+    // 64,000 pixels × quality ≤ 40 KB: quality 62.
+    expect(text('.row-done .row-note')).toBe('40 KB · quality 62');
+    expect(text('#save')).toBe('Save 4 JPG files.zip');
+    click('#save');
+    const [blob] = save.mock.calls[0]! as [Blob, string];
+    const zip = Buffer.from(await blob.arrayBuffer()).toString('latin1');
+    for (const name of ['Hero.jpg', 'Hero@2x.jpg', 'Logo.jpg', 'Logo@2x.jpg'])
+      expect(zip).toContain(name);
+    // The settings are kept for next time.
+    expect(storage.prefs).toEqual({
+      format: 'jpg',
+      scales: [1, 2],
+      quality: 'high',
+      maxKb: 40,
+      maxWidth: 1600,
+      maxHeight: null,
+      iconSize: 'favicon',
+      compression: 'balanced',
+      reduceColors: false,
+    });
+  });
+
+  it('a scale stays chosen: unticking the last one does nothing', async () => {
+    await open({ selection: selected(HERO) });
+    const one = $<HTMLInputElement>('#scale-1')!;
+    one.checked = false;
+    one.dispatchEvent(new Event('change'));
+    expect(one.checked).toBe(true);
+    expect(text('#export')).toBe('Export 1 layer');
+  });
+
+  it('files over the size are kept and marked, with what would help', async () => {
+    await open({ selection: selected(HERO, LOGO), sizeOf: () => 9000 });
+    const kb = $<HTMLInputElement>('#max-kb')!;
+    kb.value = '2';
+    kb.dispatchEvent(new Event('change'));
+    // The API's least: 5 KB.
+    expect(kb.value).toBe('5');
+    click('#export');
+    await until(() => $('#save'), 'the Save button');
+    expect(container.querySelectorAll('.row-over')).toHaveLength(2);
+    expect(text('.row-over .row-note')).toBe('9 KB · over 5 KB even at quality 5');
+    expect(text('.status-warn')).toBe(
+      '2 files are over the size: the smallest file made is kept. Choose a smaller scale or max size, or a larger limit.',
+    );
+    expect(text('#save')).toBe('Save 2 JPG files.zip');
+  });
+
+  it('PNG: lossless, and fewer colours only when ticked', async () => {
+    const { storage } = await open({ selection: selected(HERO) });
+    choose('png');
+    expect($('#quality')).toBeNull();
+    expect($<HTMLInputElement>('#reduce-colors')!.checked).toBe(false);
+    const kb = $<HTMLInputElement>('#max-kb')!;
+    kb.value = '5';
+    kb.dispatchEvent(new Event('change'));
+    click('#export');
+    await until(() => $('#save'), 'the Save button');
+    // No compressor here (deflate: null): Figma's PNG as it is, within the size.
+    expect(text('.row-done .row-note')).toBe('33 B');
+    expect(text('#save')).toBe('Save Hero.png');
+    expect(storage.prefs).toMatchObject({ format: 'png', reduceColors: false, maxKb: 5 });
+    const reduce = $<HTMLInputElement>('#reduce-colors')!;
+    reduce.checked = true;
+    reduce.dispatchEvent(new Event('change'));
+    click('#export');
+    await until(() => !$('.row-working') && $('#save'), 'the second export');
+    expect(storage.prefs).toMatchObject({ format: 'png', reduceColors: true });
+  });
+
+  it('opens with the last export settings: the same hand-off is one click', async () => {
+    const { storage } = await open({
+      selection: selected(HERO),
+      settings: {
+        apiKey: null,
+        apiBase: null,
+        exportPrefs: { format: 'png', scales: [1, 2, 3], maxKb: 150, reduceColors: true },
+      },
+    });
+    expect($<HTMLInputElement>('#target-png')!.checked).toBe(true);
+    expect([1, 2, 3, 4].map((s) => $<HTMLInputElement>(`#scale-${s}`)!.checked)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    expect($<HTMLInputElement>('#max-kb')!.value).toBe('150');
+    expect($<HTMLInputElement>('#reduce-colors')!.checked).toBe(true);
+    expect(text('#export')).toBe('Export 1 layer (3 files)');
+    click('#export');
+    await until(() => $('#save'), 'the Save button');
+    expect(text('#save')).toBe('Save 3 PNG files.zip');
+    expect(storage.prefs).toMatchObject({ format: 'png', scales: [1, 2, 3], maxKb: 150 });
+  });
+
+  it('a remembered format that cannot be made now: the first that can', async () => {
+    await open({
+      offline: true,
+      settings: { apiKey: null, apiBase: null, exportPrefs: { format: 'avif', maxKb: 80 } },
+    });
+    expect($<HTMLInputElement>('#target-jpg')!.checked).toBe(true);
+    expect($<HTMLInputElement>('#max-kb')!.value).toBe('80');
   });
 
   it('the cloud without a key: the button is off and points to Settings', async () => {
@@ -190,7 +328,7 @@ describe('the panel', () => {
   it('converts AVIF in the cloud with a saved key', async () => {
     const { save, server } = await open({
       selection: selected(HERO),
-      settings: { apiKey: KEY, apiBase: null },
+      settings: { apiKey: KEY, apiBase: null, exportPrefs: null },
     });
     choose('avif');
     expect(text('#export')).toBe('Convert 1 layer in the cloud');
@@ -205,7 +343,7 @@ describe('the panel', () => {
   it('a local failure offers the cloud, which runs only when asked', async () => {
     const { server } = await open({
       selection: selected(BANNER),
-      settings: { apiKey: KEY, apiBase: null },
+      settings: { apiKey: KEY, apiBase: null, exportPrefs: null },
     });
     choose('tiff');
     click('#export');
@@ -240,7 +378,7 @@ describe('the panel', () => {
 
   it('places a camera RAW through the cloud when asked', async () => {
     const { placed, server } = await open({
-      settings: { apiKey: KEY, apiBase: null },
+      settings: { apiKey: KEY, apiBase: null, exportPrefs: null },
       scenario: { output: pngBytes(2560, 1700) },
     });
     click('#tab-place');

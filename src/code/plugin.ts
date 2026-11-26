@@ -12,6 +12,7 @@ import {
   SOURCE,
   isApiBase,
   isApiKey,
+  parseExportPrefs,
   parseRequest,
   type Destination,
   type LayerInfo,
@@ -25,15 +26,21 @@ import { centerIn, fitScale, viewArea, type Box } from './place';
 
 /**
  * The plugin's code inside Figma (code.js). It runs in Figma's sandbox, with the `figma` object
- * and no DOM. It opens the panel (ui.html), tells it the selection, keeps the user's settings in
- * `figma.clientStorage`, and does what only Figma can: export a layer for the panel, and put a
- * picture or vector layers on the canvas. It never talks to the network: everything that talks
- * to Converter Studio happens in the panel, and only when the user asks for it.
+ * and no DOM. It opens the panel (ui.html), tells it the selection, keeps the user's settings
+ * (the API key, the last export's settings) in `figma.clientStorage`, and does what only Figma
+ * can: export a layer for the panel, and put a picture or vector layers on the canvas. It never
+ * talks to the network: everything that talks to Converter Studio happens in the panel, and only
+ * when the user asks for it.
  */
 
 export const PANEL = { width: 340, height: 660 } as const;
 /** `figma.clientStorage` keys: on this computer, for this user and this plugin only. */
-export const STORAGE = { apiKey: 'converter-studio.api-key', apiBase: 'converter-studio.api-base' };
+export const STORAGE = {
+  apiKey: 'converter-studio.api-key',
+  apiBase: 'converter-studio.api-base',
+  /** The last export's format and settings. */
+  exportPrefs: 'converter-studio.export',
+};
 
 type Container = FrameNode | ComponentNode | SectionNode;
 type Exportable = SceneNode & { exportAsync: SceneNode['exportAsync'] };
@@ -71,6 +78,10 @@ export async function answer(figma: PluginAPI, request: Request): Promise<Reply>
       case 'save-base':
         await keep(figma, STORAGE.apiBase, request.apiBase);
         return { source: SOURCE, kind: 'done', id };
+      case 'save-export':
+        // A plain object of checked fields: client storage keeps it as it is.
+        await figma.clientStorage.setAsync(STORAGE.exportPrefs, { ...request.prefs });
+        return { source: SOURCE, kind: 'done', id };
       case 'export': {
         const node = await figma.getNodeByIdAsync(request.layerId);
         if (!node || !isExportable(node))
@@ -102,13 +113,15 @@ export async function answer(figma: PluginAPI, request: Request): Promise<Reply>
 }
 
 async function readSettings(figma: PluginAPI): Promise<Settings> {
-  const [apiKey, apiBase] = await Promise.all([
+  const [apiKey, apiBase, exportPrefs] = await Promise.all([
     figma.clientStorage.getAsync(STORAGE.apiKey) as Promise<unknown>,
     figma.clientStorage.getAsync(STORAGE.apiBase) as Promise<unknown>,
+    figma.clientStorage.getAsync(STORAGE.exportPrefs) as Promise<unknown>,
   ]);
   return {
     apiKey: isApiKey(apiKey) ? apiKey : null,
     apiBase: isApiBase(apiBase) ? apiBase : null,
+    exportPrefs: parseExportPrefs(exportPrefs),
   };
 }
 

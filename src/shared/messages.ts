@@ -22,8 +22,9 @@ export const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SVG_CHARS = 20_000_000;
 /** Export scales the panel asks Figma for (Figma's own export panel goes up to 4×). */
 export const MAX_EXPORT_SCALE = 4;
-/** A fixed export width or height in pixels (the ICO's sizes are 16 to 256). */
-export const MAX_EXPORT_SIDE = 4096;
+/** A fixed export width or height in pixels: the ICO's sizes (16 to 256) and "Max size" (up to
+ * the largest canvas the panel draws). */
+export const MAX_EXPORT_SIDE = 16_384;
 /** Messages Figma shows as a toast are cut to this length. */
 export const MAX_NOTICE = 200;
 
@@ -70,6 +71,78 @@ export interface Settings {
   readonly apiKey: string | null;
   /** Another API address (advanced); `null`: https://converter.studio/api. */
   readonly apiBase: string | null;
+  /** The last export's format and settings (what was stored and still makes sense), or `null`. */
+  readonly exportPrefs: Partial<ExportPrefs> | null;
+}
+
+// ── Export settings ───────────────────────────────────────────────────────────────────────
+
+/** The export formats, in the panel's order. */
+export const EXPORT_FORMATS = ['jpg', 'png', 'webp', 'avif', 'tiff', 'ico', 'pdf'] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+export const QUALITIES = ['high', 'balanced', 'small'] as const;
+export type Quality = (typeof QUALITIES)[number];
+export const ICON_SIZES = ['favicon', '256', '128', '64', '48', '32', '16'] as const;
+export type IconSize = (typeof ICON_SIZES)[number];
+export const COMPRESSIONS = ['balanced', 'strong', 'light'] as const;
+export type Compression = (typeof COMPRESSIONS)[number];
+/** Figma's own export scales (1× and its @2x, @3x and @4x). */
+export const SCALES = [1, 2, 3, 4] as const;
+/** "At most … KB" (the API's `maxKb` limits). */
+export const MIN_KB = 5;
+export const MAX_KB = 100_000;
+
+/**
+ * The export settings the panel remembers (`figma.clientStorage`), so the same hand-off is one
+ * click the next time. Nothing in them comes from the user's files.
+ */
+export interface ExportPrefs {
+  readonly format: ExportFormat;
+  /** One or more of `SCALES`, smallest first. */
+  readonly scales: readonly number[];
+  readonly quality: Quality;
+  /** Kilobytes (1000 bytes) each file must stay under; `null`: no limit. */
+  readonly maxKb: number | null;
+  /** Pixels each file must fit in; `null`: no limit. */
+  readonly maxWidth: number | null;
+  readonly maxHeight: number | null;
+  readonly iconSize: IconSize;
+  readonly compression: Compression;
+  /** PNG: fewer colours (a palette), lossy, are allowed. */
+  readonly reduceColors: boolean;
+}
+
+const isOneOf = <T extends string | number>(list: readonly T[], value: unknown): value is T =>
+  list.includes(value as T);
+const isKb = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= MIN_KB && value <= MAX_KB;
+const isSide = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_EXPORT_SIDE;
+
+/**
+ * Remembered export settings: each field that is well formed, the others left out (the panel
+ * uses its defaults for them), so settings from another version of the plugin never get in the
+ * way. `null` when nothing in it is usable.
+ */
+export function parseExportPrefs(value: unknown): Partial<ExportPrefs> | null {
+  if (!isObject(value)) return null;
+  const prefs: { -readonly [K in keyof ExportPrefs]?: ExportPrefs[K] } = {};
+  if (isOneOf(EXPORT_FORMATS, value.format)) prefs.format = value.format;
+  if (
+    Array.isArray(value.scales) &&
+    value.scales.length > 0 &&
+    value.scales.length <= SCALES.length &&
+    value.scales.every((scale) => isOneOf(SCALES, scale))
+  )
+    prefs.scales = [...new Set(value.scales as number[])].sort((a, b) => a - b);
+  if (isOneOf(QUALITIES, value.quality)) prefs.quality = value.quality;
+  if (value.maxKb === null || isKb(value.maxKb)) prefs.maxKb = value.maxKb;
+  if (value.maxWidth === null || isSide(value.maxWidth)) prefs.maxWidth = value.maxWidth;
+  if (value.maxHeight === null || isSide(value.maxHeight)) prefs.maxHeight = value.maxHeight;
+  if (isOneOf(ICON_SIZES, value.iconSize)) prefs.iconSize = value.iconSize;
+  if (isOneOf(COMPRESSIONS, value.compression)) prefs.compression = value.compression;
+  if (typeof value.reduceColors === 'boolean') prefs.reduceColors = value.reduceColors;
+  return Object.keys(prefs).length > 0 ? prefs : null;
 }
 
 export type Constraint = {
@@ -95,6 +168,13 @@ export type Request =
       readonly kind: 'save-base';
       readonly id: number;
       readonly apiBase: string | null;
+    }
+  /** Keep the export settings for next time. */
+  | {
+      readonly source: typeof SOURCE;
+      readonly kind: 'save-export';
+      readonly id: number;
+      readonly prefs: Partial<ExportPrefs>;
     }
   /** Figma's own export of one layer: a PNG (at a scale, width or height) or a PDF. */
   | {
@@ -220,6 +300,10 @@ export function parseRequest(value: unknown): Request | null {
     case 'save-base':
       if (value.apiBase !== null && !isApiBase(value.apiBase)) return null;
       return { source: SOURCE, kind: 'save-base', id, apiBase: value.apiBase };
+    case 'save-export': {
+      const prefs = parseExportPrefs(value.prefs);
+      return prefs ? { source: SOURCE, kind: 'save-export', id, prefs } : null;
+    }
     case 'export': {
       if (!isText(value.layerId, 100)) return null;
       if (value.format !== 'PNG' && value.format !== 'PDF') return null;
@@ -292,6 +376,7 @@ function parseSettings(value: unknown): Settings | null {
   return {
     apiKey: isApiKey(value.apiKey) ? value.apiKey : null,
     apiBase: isApiBase(value.apiBase) ? value.apiBase : null,
+    exportPrefs: parseExportPrefs(value.exportPrefs),
   };
 }
 

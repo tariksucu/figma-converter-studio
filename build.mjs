@@ -8,6 +8,7 @@
 //                                           a plugin in development
 //
 // Figma shows ui.html as one document: the panel's script and styles are inlined into it.
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,44 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 export const PRODUCTION_API = 'https://converter.studio/api';
 /** What the release manifest may reach: Converter Studio's API, nothing else. */
 const ALLOWED = ['https://converter.studio/api/'];
+
+/**
+ * Third-party code in the panel: each an unmodified copy of an official npm release (npm ci
+ * checks the tarball's integrity; the build checks the bundled file's SHA-256 again), with its
+ * licence written at the top of ui.html's script.
+ */
+export const THIRD_PARTY = [
+  {
+    name: 'image-q',
+    version: '4.0.0',
+    source: 'https://github.com/ibezkrovnyi/image-quantization',
+    licence: 'MIT',
+    file: 'node_modules/image-q/dist/esm/image-q.mjs',
+    sha256: '04cde43633a6423ae6ab3742d4291fdaad0751459c808c543fe104e7a49a230c',
+    licenceFile: 'node_modules/image-q/LICENSE',
+  },
+];
+
+/** The licences, as a comment for the top of the panel's script; refuses a changed copy. */
+async function thirdPartyNotice() {
+  const parts = [];
+  for (const lib of THIRD_PARTY) {
+    const pkg = JSON.parse(await readFile(join(root, 'node_modules', lib.name, 'package.json')));
+    if (pkg.version !== lib.version)
+      throw new Error(`${lib.name} is ${pkg.version}, not the pinned ${lib.version}`);
+    const hash = createHash('sha256')
+      .update(await readFile(join(root, lib.file)))
+      .digest('hex');
+    if (hash !== lib.sha256) throw new Error(`${lib.file} is not the published ${lib.version}`);
+    const licence = (await readFile(join(root, lib.licenceFile), 'utf8')).trim();
+    if (licence.includes('*/')) throw new Error(`${lib.licenceFile} cannot go into a comment`);
+    parts.push(
+      `${lib.name} ${lib.version} (${lib.licence}), from npm, unmodified: ${lib.file.replace('node_modules/', '')}\n${lib.source}\n\n${licence}`,
+    );
+  }
+  const body = parts.join('\n\n').replace(/^/gm, ' * ').replace(/ +$/gm, '');
+  return `/*!\n * Converter Studio for Figma. Third-party code bundled in this script:\n *\n${body}\n */\n`;
+}
 
 /** @type {import('esbuild').BuildOptions} */
 const common = {
@@ -60,11 +99,14 @@ export async function build({ api = PRODUCTION_API, out = 'dist' } = {}) {
       define: { __API_BASE__: JSON.stringify(apiBase) },
     }),
   );
-  if (/<\/script/i.test(ui)) throw new Error('ui.js holds "</script": it cannot be inlined');
+  const script = (await thirdPartyNotice()) + ui;
+  if (/<\/script/i.test(script)) throw new Error('ui.js holds "</script": it cannot be inlined');
   const template = await readFile(join(root, 'public/ui.html'), 'utf8');
   const styles = await readFile(join(root, 'public/styles.css'), 'utf8');
   // Functions as replacements: `$` in the code is not a pattern.
-  const html = template.replace('/*__STYLES__*/', () => styles).replace('/*__SCRIPT__*/', () => ui);
+  const html = template
+    .replace('/*__STYLES__*/', () => styles)
+    .replace('/*__SCRIPT__*/', () => script);
 
   const manifest = JSON.parse(await readFile(join(root, 'public/manifest.json'), 'utf8'));
   checkManifest(manifest);

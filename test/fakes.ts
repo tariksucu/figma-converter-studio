@@ -21,13 +21,14 @@ export interface FakeRaster extends Raster {
 /**
  * The browser's canvas, stood in for: it "reads" PNGs (by their header) and whatever `decodes`
  * says, writes PNG and JPEG and the types in `encodes`, and a lossy file's size follows
- * `sizeOf(quality, width, height)`.
+ * `sizeOf(quality, width, height)`. A picture's pixels are `paint`'s (white by default).
  */
 export function fakeRaster(
   options: {
     encodes?: readonly string[];
     decodes?: (bytes: Uint8Array) => { width: number; height: number } | null;
     sizeOf?: (quality: number, width: number, height: number) => number;
+    paint?: (x: number, y: number) => readonly [number, number, number, number];
   } = {},
 ): FakeRaster {
   const encodes = new Set(options.encodes ?? ['image/webp']);
@@ -62,11 +63,12 @@ export function fakeRaster(
       return new Blob([new Uint8Array(sizeOf(encode.quality ?? 0.92, w, h))], { type: mime });
     },
     pixels(picture) {
-      return {
-        width: picture.width,
-        height: picture.height,
-        data: new Uint8ClampedArray(picture.width * picture.height * 4).fill(255),
-      };
+      const data = new Uint8ClampedArray(picture.width * picture.height * 4).fill(255);
+      if (options.paint)
+        for (let y = 0; y < picture.height; y++)
+          for (let x = 0; x < picture.width; x++)
+            data.set(options.paint(x, y), (y * picture.width + x) * 4);
+      return { width: picture.width, height: picture.height, data };
     },
   };
   return raster;

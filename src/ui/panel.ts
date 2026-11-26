@@ -24,7 +24,11 @@ import {
   canMakeInCloud,
   exportFields,
   formatBytes,
+  jobOf,
   routeOf,
+  scaleSuffix,
+  scalesFor,
+  settingsFrom,
   type Capabilities,
   type Compression,
   type DrawingAs,
@@ -37,6 +41,7 @@ import {
   type Route,
 } from './targets';
 import {
+  MAX_EXPORT_SIDE,
   MAX_LAYERS,
   isApiBase,
   isApiKey,
@@ -46,9 +51,10 @@ import {
 } from '../shared/messages';
 
 /**
- * The plugin's panel. **Export**: the selected layers to WebP, TIFF or ICO on this computer, or
- * to AVIF or a smaller PDF in Converter Studio's cloud. **Place a file**: pictures Figma cannot
- * open, read on this computer when the browser can, otherwise converted in the cloud.
+ * The plugin's panel. **Export**: the selected layers to JPG or PNG under a size, WebP, TIFF or
+ * ICO on this computer, or to AVIF or a smaller PDF in Converter Studio's cloud, at one or more
+ * scales; the last export's settings come back the next time. **Place a file**: pictures Figma
+ * cannot open, read on this computer when the browser can, otherwise converted in the cloud.
  * **Settings**: the Converter Studio API key (needed only for the cloud) and, under Advanced,
  * the API's address.
  */
@@ -76,8 +82,16 @@ export interface PanelDeps {
 
 type Tab = 'export' | 'place' | 'settings';
 
-interface Row {
+/** One file to make: a layer at a scale. */
+interface Job {
   readonly layer: LayerInfo;
+  readonly scale: number;
+  /** After the layer's name: `@2x` when several scales are exported. */
+  readonly suffix: string;
+}
+
+interface Row {
+  readonly job: Job;
   state: 'waiting' | 'working' | 'done' | 'failed';
   note: string;
   output?: Output;
@@ -90,7 +104,7 @@ interface Picked {
   readonly plan: PlacePlan;
 }
 
-type Status = { readonly kind: 'info' | 'error' | 'done'; readonly text: string } | null;
+type Status = { readonly kind: 'info' | 'warn' | 'error' | 'done'; readonly text: string } | null;
 
 interface State {
   tab: Tab;
@@ -155,7 +169,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
   const state: State = {
     tab: 'export',
     selection: EMPTY_SELECTION,
-    settings: { apiKey: null, apiBase: null },
+    settings: { apiKey: null, apiBase: null, exportPrefs: null },
     account: null,
     catalog: new Catalog(null),
     caps: { encodes: new Set() },
@@ -251,6 +265,42 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
       class: `badge badge-${route}`,
       text: route === 'local' ? LOCAL_BADGE : CLOUD_BADGE,
     });
+  }
+
+  /** A whole number between `min` and `max`, or nothing ("No limit"). */
+  function numberField(
+    id: string,
+    label: string,
+    value: number | null,
+    limits: { readonly min: number; readonly max: number; readonly empty: string },
+    onChange: (value: number | null) => void,
+  ) {
+    const input = h('input', {
+      id,
+      class: 'input',
+      type: 'number',
+      inputmode: 'numeric',
+      min: limits.min,
+      max: limits.max,
+      step: 1,
+      placeholder: limits.empty,
+      value: value ?? '',
+    });
+    input.addEventListener('change', () => {
+      const number = input.value.trim() === '' ? NaN : Math.round(Number(input.value));
+      const kept =
+        Number.isFinite(number) && number > 0
+          ? Math.min(limits.max, Math.max(limits.min, number))
+          : null;
+      input.value = kept === null ? '' : String(kept);
+      onChange(kept);
+    });
+    return h(
+      'div',
+      { class: 'field' },
+      h('label', { for: id, class: 'label', text: label }),
+      input,
+    );
   }
 
   function statusLine(status: Status) {
@@ -395,18 +445,49 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
 
     const fields = exportFields(target);
     const settings = state.exportSettings;
+    // The Export button counts the files; set once it exists.
+    let countFiles = () => {};
     const update = (change: Partial<ExportSettings>) => {
       state.exportSettings = { ...state.exportSettings, ...change };
+      countFiles();
     };
     const settingsBox = h('div', { class: 'fields' });
-    if (fields.scale)
+    if (fields.scale === 'several') {
+      // Figma's own scales, several at once (one file each, named like Figma's: Hero@2x).
+      const boxes = SCALES.map((scale) => {
+        const input = h('input', { type: 'checkbox', id: `scale-${scale}`, value: scale });
+        input.checked = settings.scales.includes(scale);
+        return input;
+      });
+      for (const input of boxes)
+        input.addEventListener('change', () => {
+          const scales = boxes.filter((box) => box.checked).map((box) => Number(box.value));
+          // At least one.
+          if (scales.length === 0) input.checked = true;
+          else update({ scales });
+        });
+      settingsBox.appendChild(
+        h(
+          'fieldset',
+          { class: 'field wide scales' },
+          h('legend', { class: 'label', text: 'Scale' }),
+          h(
+            'div',
+            { class: 'chips' },
+            ...boxes.map((input, i) =>
+              h('label', { class: 'chip', for: input.id }, input, `${SCALES[i]}×`),
+            ),
+          ),
+        ),
+      );
+    } else if (fields.scale === 'one')
       settingsBox.appendChild(
         select(
           'scale',
           'Scale',
           SCALES.map((s) => [String(s), `${s}×`] as const),
-          String(settings.scale),
-          (value) => update({ scale: Number(value) }),
+          String(settings.scales[0] ?? 1),
+          (value) => update({ scales: [Number(value)] }),
         ),
       );
     if (fields.quality)
@@ -419,31 +500,41 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
           (value) => update({ quality: value }),
         ),
       );
-    if (fields.maxKb) {
-      const input = h('input', {
-        id: 'max-kb',
-        class: 'input',
-        type: 'number',
-        inputmode: 'numeric',
-        min: MIN_KB,
-        max: MAX_KB,
-        step: 1,
-        placeholder: 'No limit',
-        value: settings.maxKb ?? '',
-      });
-      input.addEventListener('change', () => {
-        const value = input.value.trim() === '' ? null : Number(input.value);
-        update({ maxKb: value !== null && Number.isFinite(value) && value > 0 ? value : null });
-      });
+    if (fields.maxKb)
       settingsBox.appendChild(
-        h(
-          'div',
-          { class: 'field' },
-          h('label', { for: 'max-kb', class: 'label', text: 'At most (KB)' }),
-          input,
+        numberField(
+          'max-kb',
+          'At most (KB)',
+          settings.maxKb,
+          { min: MIN_KB, max: MAX_KB, empty: 'No limit' },
+          (maxKb) => update({ maxKb }),
         ),
       );
+    if (fields.reduceColors) {
+      const input = h('input', { type: 'checkbox', id: 'reduce-colors' });
+      input.checked = settings.reduceColors;
+      input.addEventListener('change', () => update({ reduceColors: input.checked }));
+      settingsBox.appendChild(
+        h('label', { class: 'field check', for: 'reduce-colors' }, input, 'Fewer colours (lossy)'),
+      );
     }
+    if (fields.maxSize)
+      settingsBox.append(
+        numberField(
+          'max-width',
+          'Max width (px)',
+          settings.maxWidth,
+          { min: 1, max: MAX_EXPORT_SIDE, empty: 'Any' },
+          (maxWidth) => update({ maxWidth }),
+        ),
+        numberField(
+          'max-height',
+          'Max height (px)',
+          settings.maxHeight,
+          { min: 1, max: MAX_EXPORT_SIDE, empty: 'Any' },
+          (maxHeight) => update({ maxHeight }),
+        ),
+      );
     if (fields.iconSize)
       settingsBox.appendChild(
         select(
@@ -470,7 +561,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
         ? h('p', { class: 'note note-local', text: 'Made on this computer: nothing is uploaded.' })
         : route === 'cloud'
           ? cloudNote(
-              target.cloud.figma === 'PDF'
+              target.cloud?.figma === 'PDF'
                 ? "Figma's PDF of each layer"
                 : "Figma's PNG of each layer",
             )
@@ -483,16 +574,26 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
       actions.appendChild(cancel);
     } else {
       const count = Math.min(selection.count, MAX_LAYERS);
-      const layers = count === 1 ? '1 layer' : `${count} layers`;
       const go = h('button', {
         type: 'button',
         id: 'export',
         class: 'button primary',
         disabled: count === 0 || route === null || (route === 'cloud' && !state.settings.apiKey),
-        text: route === 'cloud' ? `Convert ${layers} in the cloud` : `Export ${layers}`,
       });
+      countFiles = () => {
+        const layers = count === 1 ? '1 layer' : `${count} layers`;
+        const files = count * scalesFor(target, state.exportSettings).length;
+        const more = files > count ? ` (${files} files)` : '';
+        go.textContent =
+          route === 'cloud' ? `Convert ${layers} in the cloud${more}` : `Export ${layers}${more}`;
+      };
+      countFiles();
       go.addEventListener('click', () => {
-        if (route) void runExport(selection.layers.slice(0, MAX_LAYERS), route);
+        if (route)
+          void runExport(
+            jobsFor(selection.layers.slice(0, MAX_LAYERS), target, state.exportSettings),
+            route,
+          );
       });
       actions.appendChild(go);
     }
@@ -504,8 +605,11 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
           ...state.rows.map((row) =>
             h(
               'li',
-              { class: `row row-${row.state}` },
-              h('span', { class: 'row-name', text: row.layer.name }),
+              { class: `row row-${row.state}${row.output?.over ? ' row-over' : ''}` },
+              h('span', {
+                class: 'row-name',
+                text: `${row.job.layer.name}${row.job.suffix}`,
+              }),
               h('span', { class: 'row-note', text: row.note }),
             ),
           ),
@@ -537,7 +641,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
         'click',
         () =>
           void runExport(
-            retry.map((row) => row.layer),
+            retry.map((row) => row.job),
             'cloud',
             true,
           ),
@@ -569,19 +673,65 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
     );
   }
 
-  async function runExport(layers: readonly LayerInfo[], route: Route, retry = false) {
-    if (layers.length === 0) return;
+  /** A file for each layer at each scale, layer by layer. */
+  function jobsFor(
+    layers: readonly LayerInfo[],
+    target: ExportTarget,
+    settings: ExportSettings,
+  ): Job[] {
+    const scales = scalesFor(target, settings);
+    const several = scales.length > 1;
+    return layers.flatMap((layer) =>
+      scales.map((scale) => ({ layer, scale, suffix: scaleSuffix(scale, several) })),
+    );
+  }
+
+  function outputNote(output: Output): string {
+    const credits =
+      output.route === 'cloud' ? `${output.credits} credit${output.credits === 1 ? '' : 's'}` : '';
+    return [formatBytes(output.blob.size), output.over ?? output.detail, credits]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  /** Files over "at most … KB": what was kept, and what would help. */
+  function overStatus(rows: readonly Row[], target: ExportTarget): Status {
+    const over = rows.filter((row) => row.output?.over).length;
+    if (over === 0) return null;
+    const files = over === 1 ? '1 file is' : `${over} files are`;
+    const help =
+      target.id === 'png' && !state.exportSettings.reduceColors
+        ? 'Allow fewer colours, or choose a smaller scale or max size.'
+        : 'Choose a smaller scale or max size, or a larger limit.';
+    return {
+      kind: 'warn',
+      text: `${files} over the size: the smallest file made is kept. ${help}`,
+    };
+  }
+
+  /** The settings for next time (Figma keeps them for this plugin on this computer). */
+  function remember(target: ExportTarget, settings: ExportSettings) {
+    bridge.ask({ kind: 'save-export', prefs: { format: target.id, ...settings } }).catch(() => {
+      // Not kept: the next export starts from the defaults, nothing else is lost.
+    });
+  }
+
+  async function runExport(jobs: readonly Job[], route: Route, retry = false) {
+    if (jobs.length === 0) return;
     const controller = new AbortController();
     state.busy = controller;
     const target = state.target;
     const settings = state.exportSettings;
-    // A cloud retry keeps the layers that already worked and redoes the failed ones.
+    if (!retry) remember(target, settings);
+    // A cloud retry keeps the files that already worked and redoes the failed ones.
     const keep = retry
       ? state.rows.filter(
-          (row) => row.state === 'done' && !layers.some((layer) => layer.id === row.layer.id),
+          (row) =>
+            row.state === 'done' &&
+            !jobs.some((job) => job.layer.id === row.job.layer.id && job.scale === row.job.scale),
         )
       : [];
-    const rows: Row[] = layers.map((layer) => ({ layer, state: 'waiting', note: 'Waiting' }));
+    const rows: Row[] = jobs.map((job) => ({ job, state: 'waiting', note: 'Waiting' }));
     state.rows = [...keep, ...rows];
     state.saveable = null;
     state.exportStatus = null;
@@ -597,21 +747,28 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
       row.note = route === 'local' ? 'Exporting…' : 'Starting…';
       render();
       try {
-        const output = await exportLayer(row.layer, target, settings, route, {
-          bridge,
-          raster,
-          deflate: deps.deflate,
-          api,
-          confirmPrice,
-          signal: controller.signal,
-          onStep: (step) => {
-            row.note = stepText(step);
-            render();
+        const output = await exportLayer(
+          row.job.layer,
+          target,
+          jobOf(settings, row.job.scale),
+          route,
+          {
+            bridge,
+            raster,
+            deflate: deps.deflate,
+            api,
+            confirmPrice,
+            signal: controller.signal,
+            onStep: (step) => {
+              row.note = stepText(step);
+              render();
+            },
           },
-        });
+          row.job.suffix,
+        );
         row.state = 'done';
         row.output = output;
-        row.note = `${formatBytes(output.blob.size)}${output.route === 'cloud' ? ` · ${output.credits} credit${output.credits === 1 ? '' : 's'}` : ''}`;
+        row.note = outputNote(output);
       } catch (error) {
         row.state = 'failed';
         row.note = message(error);
@@ -620,6 +777,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
       render();
     }
     const outputs = state.rows.flatMap((row) => (row.output ? [row.output] : []));
+    state.exportStatus = overStatus(state.rows, target);
     try {
       state.saveable = await saveableOf(outputs, target);
     } catch (error) {
@@ -851,7 +1009,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
     parts.push(
       h('p', {
         class: 'muted',
-        text: 'WebP, TIFF and ICO exports, and AVIF, BMP and ICO pictures you place, are made on this computer and need no account. AVIF and smaller PDF exports, and camera RAW, TIFF, AI and EPS files you place, are converted in the cloud with a Converter Studio API key.',
+        text: 'JPG, PNG, WebP, TIFF and ICO exports, and AVIF, BMP and ICO pictures you place, are made on this computer and need no account. AVIF and smaller PDF exports, and camera RAW, TIFF, AI and EPS files you place, are converted in the cloud with a Converter Studio API key.',
       }),
     );
     if (state.settings.apiKey) {
@@ -902,7 +1060,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
           { class: 'muted' },
           'Make a key on your ',
           externalLink(LINKS.apiKeys, 'Converter Studio account page'),
-          '. Free accounts get 13 credits a day; most conversions cost 1.',
+          '. Free accounts get 25 credits a day; most conversions cost 1.',
         ),
       );
     }
@@ -1045,7 +1203,7 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
   const encodes = new Set<string>();
   const [context] = await Promise.all([
     bridge.ask({ kind: 'hello' }),
-    ...['image/webp', 'image/avif'].map(async (mime) => {
+    ...['image/jpeg', 'image/webp', 'image/avif'].map(async (mime) => {
       if (await raster.canEncode(mime)) encodes.add(mime);
     }),
   ]);
@@ -1053,11 +1211,15 @@ export async function startPanel(container: HTMLElement, deps: PanelDeps): Promi
   if (context.kind === 'context') {
     state.selection = context.selection;
     state.settings = context.settings;
+    // The last export's settings: the same hand-off again is one click.
+    state.exportSettings = settingsFrom(context.settings.exportPrefs);
   }
   await loadCatalog();
-  // The first format this app or the cloud can make.
-  state.target =
-    EXPORT_TARGETS.find((target) => routeOf(target, state.caps, state.catalog)) ?? state.target;
+  // The last export's format when it can still be made, else the first this app or the cloud
+  // can make.
+  const usable = (target: ExportTarget) => routeOf(target, state.caps, state.catalog) !== null;
+  const last = EXPORT_TARGETS.find((target) => target.id === state.settings.exportPrefs?.format);
+  state.target = (last && usable(last) ? last : EXPORT_TARGETS.find(usable)) ?? state.target;
   render();
   await refreshAccount();
 }

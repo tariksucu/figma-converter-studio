@@ -250,6 +250,57 @@ p {
   color: var(--text-2);
 }
 
+.field.wide {
+  grid-column: 1 / -1;
+}
+
+fieldset.field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset.field legend {
+  margin-bottom: 3px;
+  padding: 0;
+}
+
+/* Scales: Figma's 1×, 2×, 3× and 4×, several at once. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.chip:has(input:checked) {
+  border-color: var(--brand);
+}
+
+.chip input,
+.check input {
+  margin: 0;
+}
+
+.field.check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  align-self: end;
+  min-height: 28px;
+  cursor: pointer;
+}
+
 .input,
 .select {
   width: 100%;
@@ -348,6 +399,10 @@ p {
   color: var(--success);
 }
 
+.status-warn {
+  color: var(--warning);
+}
+
 .rows {
   display: grid;
   gap: 2px;
@@ -382,6 +437,11 @@ p {
 
 .row-failed .row-note {
   color: var(--danger);
+}
+
+/* Over "at most … KB": the closest file was kept. */
+.row-done.row-over .row-note {
+  color: var(--warning);
 }
 
 .advanced summary {

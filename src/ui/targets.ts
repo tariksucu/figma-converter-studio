@@ -1,13 +1,32 @@
 import type { ConversionOptions, FormatInfo } from './api';
 import { FAVICON_SIZES } from './encode/ico';
+import {
+  COMPRESSIONS,
+  ICON_SIZES,
+  MAX_KB,
+  MIN_KB,
+  QUALITIES,
+  SCALES,
+  type Compression,
+  type Constraint,
+  type ExportFormat,
+  type ExportPrefs,
+  type IconSize,
+  type Quality,
+} from '../shared/messages';
+
+export { COMPRESSIONS, ICON_SIZES, MAX_KB, MIN_KB, QUALITIES, SCALES };
+export type { Compression, IconSize, Quality };
 
 /**
  * What the plugin offers, and where each one is done.
  *
- * **Export.** Figma exports PNG, JPG, SVG and PDF. The plugin adds WebP, AVIF, TIFF, ICO and a
- * smaller PDF. WebP, TIFF and ICO are made **in Figma**, in the panel on the user's computer:
- * WebP with the browser's own encoder (Figma's desktop app, Chrome, Edge and Firefox have one;
- * Safari does not), TIFF and ICO with our own small writers. AVIF and the smaller PDF need
+ * **Export.** Figma exports PNG, JPG, SVG and PDF, as they come. The plugin adds JPG and PNG
+ * that stay under a size, and WebP, AVIF, TIFF, ICO and a smaller PDF. JPG, PNG, WebP, TIFF and
+ * ICO are made **in Figma**, in the panel on the user's computer: JPG and WebP with the
+ * browser's own encoder (Figma's desktop app, Chrome, Edge and Firefox write WebP; Safari does
+ * not), PNG, TIFF and ICO with our own small writers (PNG's fewer colours with image-q). AVIF
+ * and the smaller PDF need
  * **Converter Studio's cloud** (no browser writes AVIF from a canvas yet, and PDF compression
  * needs a PDF engine): Figma's PNG or PDF of the layer is uploaded, converted on the user's
  * credits and fetched back. A format made in Figma can also be sent to the cloud, but only when
@@ -25,7 +44,7 @@ export type Route = 'local' | 'cloud';
 
 // ── Export ────────────────────────────────────────────────────────────────────────────────
 
-export type ExportId = 'webp' | 'avif' | 'tiff' | 'ico' | 'pdf';
+export type ExportId = ExportFormat;
 
 export interface ExportTarget {
   readonly id: ExportId;
@@ -34,13 +53,36 @@ export interface ExportTarget {
   readonly mime: string;
   readonly hint: string;
   /** How the panel makes it on this computer: the browser's canvas (if it writes `mime`), our
-   * TIFF or ICO writer, or not at all. */
-  readonly local: 'canvas' | 'tiff' | 'ico' | null;
-  /** What Figma exports for the cloud, and what Converter Studio converts it from and to. */
-  readonly cloud: { readonly figma: 'PNG' | 'PDF'; readonly from: string; readonly to: string };
+   * PNG, TIFF or ICO writer, or not at all. */
+  readonly local: 'canvas' | 'png' | 'tiff' | 'ico' | null;
+  /** What Figma exports for the cloud, and what Converter Studio converts it from and to;
+   * `null`: made on this computer only. */
+  readonly cloud: {
+    readonly figma: 'PNG' | 'PDF';
+    readonly from: string;
+    readonly to: string;
+  } | null;
 }
 
 export const EXPORT_TARGETS: readonly ExportTarget[] = [
+  {
+    id: 'jpg',
+    label: 'JPG',
+    extension: 'jpg',
+    mime: 'image/jpeg',
+    hint: 'Photos and banners. A quality, or a size it must stay under. Transparent areas become white.',
+    local: 'canvas',
+    cloud: { figma: 'PNG', from: 'png', to: 'jpg' },
+  },
+  {
+    id: 'png',
+    label: 'PNG',
+    extension: 'png',
+    mime: 'image/png',
+    hint: "Lossless, usually smaller than Figma's own, with transparency. Allow fewer colours for a smaller file.",
+    local: 'png',
+    cloud: null,
+  },
   {
     id: 'webp',
     label: 'WebP',
@@ -131,7 +173,7 @@ export function canMakeLocally(target: ExportTarget, caps: Capabilities): boolea
 }
 
 export function canMakeInCloud(target: ExportTarget, catalog: Catalog): boolean {
-  return catalog.converts(target.cloud.from, target.cloud.to);
+  return target.cloud !== null && catalog.converts(target.cloud.from, target.cloud.to);
 }
 
 /** Where a target is made: on this computer when it can be, otherwise in the cloud. */
@@ -141,55 +183,113 @@ export function routeOf(target: ExportTarget, caps: Capabilities, catalog: Catal
   return null;
 }
 
-export const QUALITIES = ['high', 'balanced', 'small'] as const;
-export type Quality = (typeof QUALITIES)[number];
 /** The browser encoder's quality for each choice. */
 export const LOCAL_QUALITY: Readonly<Record<Quality, number>> = {
   high: 0.9,
   balanced: 0.8,
   small: 0.65,
 };
-export const ICON_SIZES = ['favicon', '256', '128', '64', '48', '32', '16'] as const;
-export type IconSize = (typeof ICON_SIZES)[number];
-export const COMPRESSIONS = ['balanced', 'strong', 'light'] as const;
-export type Compression = (typeof COMPRESSIONS)[number];
-export const SCALES = [1, 2, 3, 4] as const;
-/** "At most … KB" (the API's `maxKb` limits). */
-export const MIN_KB = 5;
-export const MAX_KB = 100_000;
+/** The lowest quality (percent) a size search goes down to (WebP's floor since 1.0.0). */
+export const LOWEST_QUALITY = 5;
+/** The palettes PNG's size search tries, from the most colours down. */
+export const PALETTES = [256, 192, 128, 96, 64, 48, 32, 24, 16, 12, 8, 4, 2] as const;
 
-export interface ExportSettings {
-  readonly scale: number;
-  readonly quality: Quality;
-  /** Kilobytes (1000 bytes) the file must stay under; `null`: no limit. */
-  readonly maxKb: number | null;
-  readonly iconSize: IconSize;
-  readonly compression: Compression;
-}
+/** The export settings, as the panel shows and remembers them. */
+export type ExportSettings = Omit<ExportPrefs, 'format'>;
+/** One file's settings: one of the chosen scales. */
+export type JobSettings = Omit<ExportSettings, 'scales'> & { readonly scale: number };
 
 export const DEFAULT_EXPORT: ExportSettings = {
-  scale: 1,
+  scales: [1],
   quality: 'high',
   maxKb: null,
+  maxWidth: null,
+  maxHeight: null,
   iconSize: 'favicon',
   compression: 'balanced',
+  reduceColors: false,
 };
 
-/** Which settings a target shows. */
+export function jobOf(settings: ExportSettings, scale: number): JobSettings {
+  const { scales: _scales, ...rest } = settings;
+  return { ...rest, scale };
+}
+
+export const DEFAULT_JOB: JobSettings = jobOf(DEFAULT_EXPORT, 1);
+
+/** The remembered settings (`figma.clientStorage`) over the defaults. */
+export function settingsFrom(prefs: Partial<ExportPrefs> | null): ExportSettings {
+  const { format: _format, ...rest } = prefs ?? {};
+  return { ...DEFAULT_EXPORT, ...rest };
+}
+
+/** Which settings a target shows. `scale`: several scales at once, one, or none. */
 export function exportFields(target: ExportTarget): {
-  scale: boolean;
+  scale: 'several' | 'one' | false;
   quality: boolean;
   maxKb: boolean;
+  maxSize: boolean;
   iconSize: boolean;
   compression: boolean;
+  reduceColors: boolean;
 } {
-  const lossy = target.id === 'webp' || target.id === 'avif';
+  const id = target.id;
+  const web = id === 'jpg' || id === 'png' || id === 'webp' || id === 'avif';
   return {
-    scale: target.id === 'webp' || target.id === 'avif' || target.id === 'tiff',
-    quality: lossy,
-    maxKb: lossy,
-    iconSize: target.id === 'ico',
-    compression: target.id === 'pdf',
+    // Each AVIF is a cloud conversion: one scale at a time.
+    scale: id === 'avif' ? 'one' : web || id === 'tiff' ? 'several' : false,
+    quality: id === 'jpg' || id === 'webp' || id === 'avif',
+    maxKb: web,
+    maxSize: web,
+    iconSize: id === 'ico',
+    compression: id === 'pdf',
+    reduceColors: id === 'png',
+  };
+}
+
+/** The scales a target exports: the chosen ones, the first of them, or 1 for ICO and PDF. */
+export function scalesFor(target: ExportTarget, settings: ExportSettings): number[] {
+  const field = exportFields(target).scale;
+  if (field === false) return [1];
+  const scales = settings.scales.length ? [...settings.scales] : [1];
+  return field === 'one' ? scales.slice(0, 1) : scales;
+}
+
+/** A file name's suffix for a scale, as Figma writes it (`@2x`), when several are exported. */
+export function scaleSuffix(scale: number, several: boolean): string {
+  return several && scale !== 1 ? `@${scale}x` : '';
+}
+
+/**
+ * What Figma is asked for: the layer at the scale, or less so that it fits in the maximum
+ * width and height (exactly that width or height, the other side in proportion), and the size
+ * that should come back.
+ */
+export function exportSize(
+  layer: { readonly width: number; readonly height: number },
+  scale: number,
+  box: { readonly maxWidth: number | null; readonly maxHeight: number | null },
+): { constraint: Constraint; width: number; height: number } {
+  const width = layer.width * scale;
+  const height = layer.height * scale;
+  const fx = box.maxWidth !== null && width > box.maxWidth ? box.maxWidth / width : 1;
+  const fy = box.maxHeight !== null && height > box.maxHeight ? box.maxHeight / height : 1;
+  if (fx >= 1 && fy >= 1)
+    return {
+      constraint: { type: 'SCALE', value: scale },
+      width: Math.ceil(width),
+      height: Math.ceil(height),
+    };
+  if (fx <= fy)
+    return {
+      constraint: { type: 'WIDTH', value: box.maxWidth! },
+      width: box.maxWidth!,
+      height: Math.max(1, Math.round(height * fx)),
+    };
+  return {
+    constraint: { type: 'HEIGHT', value: box.maxHeight! },
+    width: Math.max(1, Math.round(width * fy)),
+    height: box.maxHeight!,
   };
 }
 
@@ -205,7 +305,7 @@ export function clampKb(value: number | null): number | null {
 }
 
 /** Converter Studio's options for a cloud export. */
-export function cloudOptions(target: ExportTarget, settings: ExportSettings): ConversionOptions {
+export function cloudOptions(target: ExportTarget, settings: JobSettings): ConversionOptions {
   const fields = exportFields(target);
   const options: ConversionOptions = {};
   if (fields.quality) options.quality = settings.quality;

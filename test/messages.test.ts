@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_EXPORT_SIDE,
   MAX_IMAGE_BYTES,
   SOURCE,
   cleanName,
   isApiBase,
   isApiKey,
+  parseExportPrefs,
   parsePluginMessage,
   parseRequest,
 } from '../src/shared/messages';
@@ -90,8 +92,17 @@ describe('messages from the plugin', () => {
       kind: 'context',
       id: 1,
       selection,
-      settings: { apiKey: KEY, apiBase: null },
+      settings: { apiKey: KEY, apiBase: null, exportPrefs: null },
     });
+    expect(
+      parsePluginMessage({
+        source: SOURCE,
+        kind: 'context',
+        id: 1,
+        selection,
+        settings: { apiKey: null, apiBase: null, exportPrefs: { format: 'jpg', maxKb: 150 } },
+      }),
+    ).toMatchObject({ settings: { exportPrefs: { format: 'jpg', maxKb: 150 } } });
     expect(parsePluginMessage({ source: SOURCE, kind: 'selection', selection })).toMatchObject({
       kind: 'selection',
     });
@@ -133,6 +144,55 @@ describe('messages from the plugin', () => {
       parsePluginMessage({ source: SOURCE, kind: 'exported', id: 2, name: 'x', bytes: 'abc' }),
     ).toBeNull();
     expect(parsePluginMessage({ kind: 'done', id: 1 })).toBeNull();
+  });
+});
+
+describe('the remembered export settings', () => {
+  const prefs = {
+    format: 'jpg',
+    scales: [3, 1, 2],
+    quality: 'balanced',
+    maxKb: 150,
+    maxWidth: 1600,
+    maxHeight: null,
+    iconSize: 'favicon',
+    compression: 'balanced',
+    reduceColors: true,
+  };
+
+  it('keeps what is well formed (scales in order, once each)', () => {
+    expect(parseExportPrefs(prefs)).toEqual({ ...prefs, scales: [1, 2, 3] });
+    expect(request({ kind: 'save-export', prefs })).toMatchObject({
+      kind: 'save-export',
+      prefs: { format: 'jpg', scales: [1, 2, 3] },
+    });
+    expect(MAX_EXPORT_SIDE).toBe(16_384);
+  });
+
+  it('leaves out each field that is not, so the defaults take its place', () => {
+    expect(
+      parseExportPrefs({
+        ...prefs,
+        format: 'heic',
+        scales: [1, 5],
+        quality: 'best',
+        maxKb: 2,
+        maxWidth: 1.5,
+        maxHeight: 20_000,
+        iconSize: '512',
+        compression: 'max',
+        reduceColors: 'yes',
+        extra: 'ignored',
+      }),
+    ).toBeNull();
+    expect(parseExportPrefs({ format: 'avif', maxKb: '150', scales: [] })).toEqual({
+      format: 'avif',
+    });
+    expect(parseExportPrefs([1, 2])).toBeNull();
+    expect(parseExportPrefs(null)).toBeNull();
+    // Nothing usable: no message.
+    expect(request({ kind: 'save-export', prefs: { format: 'gif' } })).toBeNull();
+    expect(request({ kind: 'save-export' })).toBeNull();
   });
 });
 

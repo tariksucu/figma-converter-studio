@@ -86,6 +86,22 @@ describe("the plugin's code in Figma", () => {
     expect([...figma.storage.keys()]).toEqual([]);
   });
 
+  it('keeps the last export settings and hands them back the next time', async () => {
+    const figma = started();
+    const prefs = { format: 'jpg', scales: [1, 2], maxKb: 150, maxWidth: 1600, maxHeight: null };
+    expect(await ask(figma, { kind: 'save-export', prefs })).toMatchObject({ kind: 'done' });
+    expect(figma.storage.get(STORAGE.exportPrefs)).toEqual(prefs);
+    const reply = await ask(figma, { kind: 'hello' });
+    expect(reply.settings).toEqual({ apiKey: null, apiBase: null, exportPrefs: prefs });
+    // What another version stored, or what was damaged: only the usable fields come back.
+    figma.storage.set(STORAGE.exportPrefs, { format: 'gif', maxKb: 150, scales: 'all' });
+    expect((await ask(figma, { kind: 'hello' })).settings).toMatchObject({
+      exportPrefs: { maxKb: 150 },
+    });
+    figma.storage.set(STORAGE.exportPrefs, 'nonsense');
+    expect((await ask(figma, { kind: 'hello' })).settings).toMatchObject({ exportPrefs: null });
+  });
+
   it('ignores what is not a well-formed request of ours (a wrong key is never stored)', async () => {
     const figma = started();
     figma.receive({ source: SOURCE, id: 1, kind: 'save-key', apiKey: 'sk-something' });
